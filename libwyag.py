@@ -154,6 +154,12 @@ class GitCommit(GitObject):
     def init(self):
         self.kvlm = dict()
 
+class GitTreeLeaf(object):
+    def __init__(self, mode, path, sha):
+        self.mode = mode
+        self.path = path
+        self.sha = sha
+
 def repo_path(repo, *path):
     """Compute path under repo's gitdir."""
     return os.path.join(repo.gitdir, *path)
@@ -457,3 +463,36 @@ def log_graphviz(repo, sha, seen):
         p = p.decode("ascii")
         print(f"  c_{sha} -> c_{p};")
         log_graphviz(repo, p, seen)
+
+def tree_parse_one(raw, start=0):
+    # Find the space terminator of the mode
+    x = raw.find(b' ', start)
+    assert x-start == 5 or x-start == 6
+
+    # Read the mode
+    mode = raw[start:x]
+    if len(mode) == 5:
+        # Normalize to six bytes.
+        mode = b"0" + mode
+
+    # Find the NULL terminator of the path
+    y = raw.find(b'\x00', x)
+    # and read the path
+    path = raw[x+1:y]
+
+    # Read the SHA...
+    raw_sha = int.from_bytes(raw[y+1:y+21], "big")
+    # and convert it into an hex string, padded to 40 chars
+    # with zeros if needed.
+    sha = format(raw_sha, "040x")
+    return y+21, GitTreeLeaf(mode, path.decode("utf8"), sha)
+
+def tree_parse(raw):
+    pos = 0
+    max = len(raw)
+    ret = list()
+    while pos < max:
+        pos, data = tree_parse_one(raw, pos)
+        ret.append(data)
+
+    return ret
