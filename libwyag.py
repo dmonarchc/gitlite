@@ -98,6 +98,19 @@ argsp.add_argument("object",
                    nargs="?",
                    help="The object the new tag will point to")
 
+argsp = argsubparsers.add_parser(
+    "rev-parse",
+    help="Parse revision (or other objects) identifiers")
+
+argsp.add_argument("--wyag-type",
+                   metavar="type",
+                   dest="type",
+                   choices=["blob", "commit", "tag", "tree"],
+                   default=None,
+                   help="Specify the expected type")
+
+argsp.add_argument("name",
+                   help="The name to parse")
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
         case "cat_file": cmd_cat_file(args)
@@ -377,7 +390,39 @@ def cat_file(repo, obj, fmt=None):
     sys.stdout.buffer.write(obj.serialize())
 
 def object_find(repo, name, fmt=None, follow=True):
-    return name
+    sha = object_resolve(repo, name)
+
+    if not sha:
+        raise Exception(f"No such reference {name}.")
+
+    if len(sha) > 1:
+        raise Exception("Ambiguous reference {name}: Candidates are :\n - {'\n - '.join(sha)}.")
+
+    sha = sha[0]
+
+    if not fmt:
+        return sha
+    
+    while True:
+        obj = object_read(repo, sha)
+        #     ^^^^^^^^^^^ < this is a bit agressive: we're reading
+        # the full object just to get its type. And we're doing
+        # that in a loop, albeit normally short. Don't expect
+        # high performance here.
+
+        if obj.fmt == fmt:
+            return sha
+
+        if not follow:
+            return None
+        
+        # Follow tag
+        if obj.fmt == b'tag':
+            sha = obj.kvlm[b'object'].decode("ascii")
+        elif obj.fmt == b'commit' and fmt == b'tree':
+            sha = obj.kvlm[b'tree'].decode("ascii")
+        else:
+            return None
 
 def cmd_hash_object(args):
     if args.write:
@@ -770,3 +815,13 @@ def object_resolve(repo, name):
         candidates.append(as_remote_branch)
 
     return candidates
+
+def cmd_rev_parse(args):
+    if args.type:
+        fmt = args.type.encode()
+    else:
+        fmt = None
+
+    repo = repo_find()
+
+    print (object_find(repo, args.name, fmt, follow=True))
